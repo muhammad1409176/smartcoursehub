@@ -9,6 +9,30 @@ const QRCode = require('qrcode');
 
 dotenv.config();
 
+// Determine connection string: prefer MONGO_URI, then MONGODB_URI (used by some environments),
+// finally fall back to a local development database so the server can start without env vars.
+const DB_URI =
+  process.env.MONGO_URI ||
+  process.env.MONGODB_URI ||
+  'mongodb://127.0.0.1:27017/smartcoursehub';
+
+// Log a warning if no environment variable was provided so the user knows a default is being used.
+if (!process.env.MONGO_URI && !process.env.MONGODB_URI) {
+  console.warn(
+    '[SERVER] WARNING: No MongoDB URI set in environment; using local fallback.\n' +
+      'Please set MONGO_URI (or MONGODB_URI) in a .env file or your environment for production.'
+  );
+}
+
+mongoose
+  .connect(DB_URI)
+  .then(() => {
+    console.log('MongoDB connected');
+  })
+  .catch((err) => {
+    console.error('MongoDB connection error:', err);
+  });
+
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 if (!process.env.JWT_SECRET) {
   console.warn('[SERVER] WARNING: JWT_SECRET not set. Using development fallback secret. Do NOT use in production.');
@@ -30,12 +54,7 @@ app.use(morgan('dev'));
 // Static React frontend
 app.use(express.static(path.join(__dirname, 'public')));
 
-// MongoDB connect
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB error', err));
-
+// NOTE: connection is handled above when we determined DB_URI; this block is no longer needed.
 // Seed default admin
 const seedAdmin = async () => {
   const existingAdmin = await User.findOne({ role: 'admin' });
@@ -962,30 +981,35 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Start server
-const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+// Start server (local development only)
+if (require.main === module) {
+  const PORT = process.env.PORT || 5000;
+  const server = app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
 
-// Handle listen errors gracefully
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`Port ${PORT} is already in use. Please free the port or use a different PORT.`);
+  // Handle listen errors gracefully
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use. Please free the port or use a different PORT.`);
+      process.exit(1);
+    } else {
+      console.error('Server error:', err);
+      process.exit(1);
+    }
+  });
+
+  // Global error handlers
+  process.on('uncaughtException', (err) => {
+    console.error('[FATAL] Uncaught Exception:', err);
     process.exit(1);
-  } else {
-    console.error('Server error:', err);
-    process.exit(1);
-  }
-});
+  });
 
-// Global error handlers
-process.on('uncaughtException', (err) => {
-  console.error('[FATAL] Uncaught Exception:', err);
-  process.exit(1);
-});
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('[FATAL] Unhandled Rejection at:', promise, 'reason:', reason);
+  });
+}
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[FATAL] Unhandled Rejection at:', promise, 'reason:', reason);
-});
+// export app for serverless platforms (Vercel, etc.)
+module.exports = app;
 
 function calculateProgress(e) {
   // Now support 5 resource types: notes, pdf, playlist, video, guidance
