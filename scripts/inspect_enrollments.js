@@ -7,7 +7,7 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '..', '.env'
 
 async function run() {
   try {
-    await mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+    await mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true });
     console.log('Connected to MongoDB');
 
     const enrollments = await Enrollment.find({}).limit(20).populate('user', 'name email').populate('course', 'title');
@@ -17,7 +17,7 @@ async function run() {
       console.log('User:', e.user?.name, e.user?.email);
       console.log('Course:', e.course?.title);
       console.log('Progress:', e.progress);
-      console.log('notesCompleted:', e.notesCompleted, 'pdfCompleted:', e.pdfCompleted, 'playlistCompleted:', e.playlistCompleted, 'guidanceCompleted:', e.guidanceCompleted);
+      console.log('notesCompleted:', e.notesCompleted, 'pdfCompleted:', e.pdfCompleted, 'playlistCompleted:', e.playlistCompleted, 'videoCompleted:', e.videoCompleted, 'guidanceCompleted:', e.guidanceCompleted);
     });
 
     await mongoose.disconnect();

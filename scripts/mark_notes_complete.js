@@ -6,7 +6,7 @@ const Enrollment = require('../models/Enrollment');
 
 async function run() {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
+    await mongoose.connect(process.env.MONGODB_URI);
     console.log('Connected to MongoDB');
 
     const id = '69b7c4a7dc33d93662dff62c'; // enrollment to update
@@ -16,15 +16,22 @@ async function run() {
       return process.exit(1);
     }
 
-    en.guidanceCompleted = true;
+    en.notesCompleted = true;
 
-    // Recalculate progress
-    const parts = ['notesCompleted','pdfCompleted','playlistCompleted','guidanceCompleted'];
+    // Recalculate progress using all 5 components
+    const parts = ['notesCompleted','pdfCompleted','playlistCompleted','videoCompleted','guidanceCompleted'];
     const completed = parts.reduce((acc, k) => acc + (en[k] ? 1 : 0), 0);
     en.progress = Math.round((completed / parts.length) * 100);
 
     await en.save();
     console.log('Updated enrollment:', en._id.toString(), 'progress=', en.progress);
+    console.log('Completion status:', {
+      notesCompleted: en.notesCompleted,
+      pdfCompleted: en.pdfCompleted,
+      playlistCompleted: en.playlistCompleted,
+      videoCompleted: en.videoCompleted,
+      guidanceCompleted: en.guidanceCompleted
+    });
 
     await mongoose.disconnect();
   } catch (err) {
