@@ -24,15 +24,6 @@ if (!process.env.MONGO_URI && !process.env.MONGODB_URI) {
   );
 }
 
-mongoose
-  .connect(DB_URI)
-  .then(() => {
-    console.log('MongoDB connected');
-  })
-  .catch((err) => {
-    console.error('MongoDB connection error:', err);
-  });
-
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
 if (!process.env.JWT_SECRET) {
   console.warn('[SERVER] WARNING: JWT_SECRET not set. Using development fallback secret. Do NOT use in production.');
@@ -46,6 +37,47 @@ const { protect, adminOnly } = require('./middleware/authMiddleware');
 
 const app = express();
 
+// Connect to MongoDB and seed the default admin user after connection completes.
+// This ensures we don't perform database queries while the connection is still buffering.
+const connectDatabase = async () => {
+  try {
+    await mongoose.connect(DB_URI, {
+      // Fail fast if the server selection takes too long (defaults to 30s in MongoDB driver)
+      serverSelectionTimeoutMS: 10000
+    });
+
+    console.log('MongoDB connected');
+
+    // Seed default admin if needed
+    await seedAdmin();
+  } catch (err) {
+    const sanitizeUri = (uri) => {
+      if (!uri) return uri;
+      // Hide password while keeping the user & host visible
+      return uri.replace(/(mongodb(?:\+srv)?:\/\/)([^:@\/]+)(:[^@]+)?@/, '$1$2:***@');
+    };
+
+    console.error('MongoDB connection error:', err);
+    console.error('Attempted connection string:', sanitizeUri(DB_URI));
+
+    if (err.name === 'MongooseServerSelectionError') {
+      console.error(
+        'Tip: Ensure your MongoDB Atlas network access (IP whitelist) includes your current IP, ' +
+          'your cluster is running, and your connection string is correct (user/password/db name).' +
+          ' If you are behind a corporate firewall or VPN, try disabling it or using a different network.'
+      );
+      console.error(
+        'You can also test connectivity using `mongosh`/`mongo` with the same URI (remove `?appName=...` if needed).'
+      );
+    }
+
+    if (require.main === module) {
+      // When running as the main server (e.g. `node server.js`), stop the process so we don't keep serving broken state.
+      process.exit(1);
+    }
+  }
+};
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -54,8 +86,7 @@ app.use(morgan('dev'));
 // Static React frontend
 app.use(express.static(path.join(__dirname, 'public')));
 
-// NOTE: connection is handled above when we determined DB_URI; this block is no longer needed.
-// Seed default admin
+// Seed default admin (run after DB connection is established)
 const seedAdmin = async () => {
   const existingAdmin = await User.findOne({ role: 'admin' });
   if (!existingAdmin) {
@@ -69,7 +100,9 @@ const seedAdmin = async () => {
     console.log('Default admin created: admin@smartcoursehub.com / admin123');
   }
 };
-seedAdmin();
+
+// Connect to the database after the seed function exists
+connectDatabase();
 
 // Helper: validate email format
 const isValidEmail = (email) => {
